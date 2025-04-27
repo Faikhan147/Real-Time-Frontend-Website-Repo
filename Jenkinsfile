@@ -10,7 +10,7 @@ pipeline {
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
     }
-
+ stages {
 
         stage('SonarQube Code Analysis') {
             steps {
