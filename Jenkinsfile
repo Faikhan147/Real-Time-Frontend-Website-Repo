@@ -165,7 +165,7 @@ pipeline {
             }
         }
 
-        stage('Deploy to QA/Staging with Helm') {
+stage('Deploy to QA/Staging with Helm') {
     when {
         expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
     }
