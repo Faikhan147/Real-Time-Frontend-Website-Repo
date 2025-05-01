@@ -30,6 +30,7 @@ pipeline {
                     $class: 'GitSCM', 
                     branches: [[name: "*/${params.BRANCH}"]], 
                     userRemoteConfigs: "${params.REPO_URL}",
+                    credentialsId: 'github-credentials' // 👈 Jenkins me jo ID diya tha PAT token add karte waqt
                 ])
             }
         }
