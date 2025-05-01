@@ -99,7 +99,8 @@ pipeline {
             }
         }
 
-       stage('Run Unit & Integration Tests') {
+    
+    stage('Run Unit & Integration Tests') {
     when {
         expression { fileExists('Website/package.json') }
     }
@@ -134,7 +135,6 @@ pipeline {
         }
     }
 }
-
 
         stage('DockerHub Login') {
             steps {
