@@ -8,9 +8,11 @@ metadata:
     app: website
     release: {{ .Release.Name }}
 spec:
+  type: LoadBalancer   # ⭐ Yeh line add ki gayi hai
   ports:
     - port: 80
       targetPort: 80
   selector:
     app: website
     release: {{ .Release.Name }}
+
