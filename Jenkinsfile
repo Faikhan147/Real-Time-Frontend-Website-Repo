@@ -20,24 +20,23 @@ pipeline {
         KUBECONFIG = credentials('kubeconfig-credentials')
         DOCKER_USER = credentials('dockerhub-credentials').username
         DOCKER_PASS = credentials('dockerhub-credentials').password
-        WEBSITE_URL = credentials('website-url') // Storing website URL for health checks
+        WEBSITE_URL = credentials('website-url')
     }
 
-   stages {
-       
-    stage('Checkout Code') {
-        steps {
-            checkout([
-                $class: 'GitSCM',
-                branches: [[name: "*/${params.BRANCH}"]],
-                userRemoteConfigs: [[
-                    url: "${params.REPO_URL}",
-                    credentialsId: 'github-credentials'
-                ]]
-            ])
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    userRemoteConfigs: [[
+                        url: "${params.REPO_URL}",
+                        credentialsId: 'github-credentials'
+                    ]]
+                ])
+            }
         }
-    }
-}
 
         stage('SonarQube Code Analysis') {
             steps {
@@ -99,42 +98,41 @@ pipeline {
             }
         }
 
-    
-    stage('Run Unit & Integration Tests') {
-    when {
-        expression { fileExists('Website/package.json') }
-    }
-    parallel {
-        stage('Unit Tests') {
-            steps {
-                dir('Website') {
-                    script {
-                        echo "Running unit tests..."
-                        sh """
-                            npm install || { echo 'npm install failed!'; exit 1; }
-                            npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
-                        """
-                        publishHTML(target: [
-                            reportDir: 'Website',
-                            reportFiles: 'jest-html-report.html',
-                            reportName: 'Jest Test Report'
-                        ])
+        stage('Run Unit & Integration Tests') {
+            when {
+                expression { fileExists('Website/package.json') }
+            }
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        dir('Website') {
+                            script {
+                                echo "Running unit tests..."
+                                sh """
+                                    npm install || { echo 'npm install failed!'; exit 1; }
+                                    npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
+                                """
+                                publishHTML(target: [
+                                    reportDir: 'Website',
+                                    reportFiles: 'jest-html-report.html',
+                                    reportName: 'Jest Test Report'
+                                ])
+                            }
+                        }
+                    }
+                }
+                stage('Integration Tests') {
+                    steps {
+                        dir('Website') {
+                            script {
+                                echo "Running integration tests..."
+                                sh "npm run test:integration || { echo 'Integration tests failed!'; exit 1; }"
+                            }
+                        }
                     }
                 }
             }
         }
-        stage('Integration Tests') {
-            steps {
-                dir('Website') {
-                    script {
-                        echo "Running integration tests..."
-                        sh "npm run test:integration || { echo 'Integration tests failed!'; exit 1; }"
-                    }
-                }
-            }
-        }
-    }
-}
 
         stage('DockerHub Login') {
             steps {
