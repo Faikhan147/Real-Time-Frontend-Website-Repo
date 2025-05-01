@@ -166,23 +166,25 @@ pipeline {
         }
 
         stage('Deploy to QA/Staging with Helm') {
-            when {
-                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-            }
-            steps {
-                script {
-                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-                    retry(3) {
-                        echo "Deploying to ${params.ENVIRONMENT} environment..."
-                        sh """
-                            helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                            --namespace ${params.ENVIRONMENT} \
-                            --set ${chartValues} || { echo 'Helm deployment failed!'; exit 1; }
-                        """
-                    }
+    when {
+        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+    }
+    steps {
+        withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG')]) {
+            script {
+                def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+                retry(3) {
+                    echo "Deploying to ${params.ENVIRONMENT} environment..."
+                    sh """
+                        helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                        --namespace ${params.ENVIRONMENT} \
+                        --set ${chartValues} || { echo 'Helm deployment failed!'; exit 1; }
+                    """
                 }
             }
         }
+    }
+}
 
         stage('Monitor Deployment (Pods + Web Health Check)') {
             steps {
