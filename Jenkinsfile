@@ -16,7 +16,7 @@ pipeline {
         SONAR_PROJECT_NAME = "Frontend-Website"
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
-        HELM_CHART_DIR = "helm/website-chart"
+        HELM_CHART_DIR = "helm"
         KUBECONFIG = credentials('kubeconfig-credentials')
         DOCKER_USER = credentials('dockerhub-credentials').username
         DOCKER_PASS = credentials('dockerhub-credentials').password
