@@ -23,17 +23,21 @@ pipeline {
         WEBSITE_URL = credentials('website-url') // Storing website URL for health checks
     }
 
-    stages {
-        stage('Checkout Code') {
-            steps {
-                checkout([ 
-                    $class: 'GitSCM', 
-                    branches: [[name: "*/${params.BRANCH}"]], 
-                    userRemoteConfigs: "${params.REPO_URL}",
-                    credentialsId: 'github-credentials' // 👈 Jenkins me jo ID diya tha PAT token add karte waqt
-                ])
-            }
+   stages {
+       
+    stage('Checkout Code') {
+        steps {
+            checkout([
+                $class: 'GitSCM',
+                branches: [[name: "*/${params.BRANCH}"]],
+                userRemoteConfigs: [[
+                    url: "${params.REPO_URL}",
+                    credentialsId: 'github-credentials'
+                ]]
+            ])
         }
+    }
+}
 
         stage('SonarQube Code Analysis') {
             steps {
