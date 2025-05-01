@@ -3,6 +3,7 @@ pipeline {
 
     parameters {
         string(name: 'BRANCH', defaultValue: 'main', description: 'Branch to build')
+        string(name: 'REPO_URL', defaultValue: 'https://github.com/myorg/my-app.git', description: 'Git repo URL')
         choice(name: 'ENVIRONMENT', choices: ['qa', 'staging', 'prod'], description: 'Select the environment to deploy')
     }
 
@@ -28,7 +29,7 @@ pipeline {
                 checkout([ 
                     $class: 'GitSCM', 
                     branches: [[name: "*/${params.BRANCH}"]], 
-                    userRemoteConfigs: [[url: 'https://github.com/your-repo.git']]
+                    userRemoteConfigs: "${params.REPO_URL}",
                 ])
             }
         }
