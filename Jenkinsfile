@@ -178,7 +178,11 @@ pipeline {
                             sh """
                                 helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
                                 --namespace ${params.ENVIRONMENT} \
-                                --set ${chartValues} || { echo 'Helm deployment failed!'; exit 1; }
+                                --set ${chartValues} \
+                                --set resources.requests.memory=128Mi \
+                                --set resources.requests.cpu=100m \
+                                --set resources.limits.memory=256Mi \
+                                --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
                             """
                         }
                     }
@@ -236,7 +240,11 @@ pipeline {
                         sh """
                             helm upgrade --install website-prod ${HELM_CHART_DIR} \
                             --namespace prod \
-                            --set ${chartValues} || { echo 'Production deployment failed!'; exit 1; }
+                            --set ${chartValues} \
+                            --set resources.requests.memory=128Mi \
+                            --set resources.requests.cpu=100m \
+                            --set resources.limits.memory=256Mi \
+                            --set resources.limits.cpu=250m || { echo 'Production deployment failed!'; exit 1; }
                         """
                     }
                 }
@@ -254,7 +262,6 @@ pipeline {
             }
         }
 
-        // ✅ ✅ ✅ Slack Notification Stage added here as you requested
         stage('Slack Notification') {
             steps {
                 script {
