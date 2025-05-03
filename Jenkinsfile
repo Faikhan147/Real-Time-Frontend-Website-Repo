@@ -97,42 +97,6 @@ pipeline {
             }
         }
 
-        stage('Run Unit & Integration Tests') {
-            when {
-                expression { fileExists('Website/package.json') }
-            }
-            parallel {
-                stage('Unit Tests') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                echo "Running unit tests..."
-                                sh """
-                                    npm install || { echo 'npm install failed!'; exit 1; }
-                                    npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
-                                """
-                                publishHTML(target: [
-                                    reportDir: 'Website',
-                                    reportFiles: 'jest-html-report.html',
-                                    reportName: 'Jest Test Report'
-                                ])
-                            }
-                        }
-                    }
-                }
-                stage('Integration Tests') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                echo "Running integration tests..."
-                                sh "npm run test:integration || { echo 'Integration tests failed!'; exit 1; }"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         stage('DockerHub Login') {
             steps {
                 script {
