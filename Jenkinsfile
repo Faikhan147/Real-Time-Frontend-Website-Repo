@@ -8,10 +8,10 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = "faisalkhan35/my-website:${BUILD_NUMBER}"
+        DOCKER_IMAGE = "faisalkhan35/my-website"
         SLACK_WEBHOOK_URL = credentials('slack-webhook')
         FRONTEND_IMAGE_NAME = "faisalkhan35/my-website"
-        TAG = "latest"
+        TAG = "${BUILD_NUMBER}"
         SONAR_PROJECT_KEY = "Website"
         SONAR_PROJECT_NAME = "Frontend-Website"
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
