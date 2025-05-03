@@ -178,63 +178,59 @@ pipeline {
             }
         }
 
-stage('Rollback (if needed)') {
-    when {
-        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-    }
-    steps {
-        script {
-            echo "Checking if rollback is needed..."
-            def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
-            if (releaseHistory.contains('"revision":')) {
-                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                echo "Rolling back to revision ${lastRevision}"
-                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
-            } else {
-                echo "No previous revision found. Skipping rollback."
+        stage('Rollback (if needed)') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
             }
-        }
-    }
-}
-
-
-        
-stage('Monitor Deployment (Pods + Web Health Check)') {
-    steps {
-        script {
-            echo "Monitoring deployment status..."
-            retry(3) {
-                // Passing the params.ENVIRONMENT as an environment variable to the shell script
-                withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
-                    sh '''#!/bin/bash
-                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                    '''
-                    sh '''#!/bin/bash
-                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                        if [[ "$POD_STATUS" != *"Running"* ]]; then
-                            echo "❌ Not all pods are running."
-                            exit 1
-                        fi
-                    '''
-                }
-            }
-            retry(3) {
-                // Passing the WEBSITE_URL as an environment variable
-                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
-                    sh '''#!/bin/bash
-                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                        if [ "$STATUS_CODE" -ne 200 ]; then
-                            echo "❌ Website health check failed."
-                            exit 1
-                        fi
-                    '''
+            steps {
+                script {
+                    echo "Checking if rollback is needed..."
+                    def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
+                    if (releaseHistory.contains('"revision":')) {
+                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                        echo "Rolling back to revision ${lastRevision}"
+                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+                    } else {
+                        echo "No previous revision found. Skipping rollback."
+                    }
                 }
             }
         }
-    }
-}
 
-
+        stage('Monitor Deployment (Pods + Web Health Check)') {
+            steps {
+                script {
+                    echo "Monitoring deployment status..."
+                    retry(3) {
+                        // Passing the params.ENVIRONMENT as an environment variable to the shell script
+                        withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
+                            sh '''#!/bin/bash
+                                kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
+                            '''
+                            sh '''#!/bin/bash
+                                POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                                if [[ "$POD_STATUS" != *"Running"* ]]; then
+                                    echo "❌ Not all pods are running."
+                                    exit 1
+                                fi
+                            '''
+                        }
+                    }
+                    retry(3) {
+                        // Passing the WEBSITE_URL as an environment variable
+                        withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                            sh '''#!/bin/bash
+                                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                                if [ "$STATUS_CODE" -ne 200 ]; then
+                                    echo "❌ Website health check failed."
+                                    exit 1
+                                fi
+                            '''
+                        }
+                    }
+                }
+            }
+        }
 
         stage('Approval for Production') {
             when {
@@ -296,25 +292,25 @@ stage('Monitor Deployment (Pods + Web Health Check)') {
     }
 
     post {
-    success {
-        script {
-            build job: 'Slack-Notifier', parameters: [
-                string(name: 'STATUS', value: '✅ Deployment successful'),
-                string(name: 'ENV', value: "${params.ENVIRONMENT}")
-            ]
+        success {
+            script {
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '✅ Deployment successful'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+            }
         }
-    }
-    failure {
-        script {
-            echo "❌ Pipeline failed! Rolling back..."
-            build job: 'Slack-Notifier', parameters: [
-                string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
-                string(name: 'ENV', value: "${params.ENVIRONMENT}")
-            ]
-            
-            def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-            sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
+        failure {
+            script {
+                echo "❌ Pipeline failed! Rolling back..."
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+                
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
+            }
         }
     }
 }
-
