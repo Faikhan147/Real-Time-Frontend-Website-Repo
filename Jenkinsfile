@@ -165,26 +165,26 @@ pipeline {
             }
         }
 
-stage('Deploy to QA/Staging with Helm') {
-    when {
-        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-    }
-    steps {
-        withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG')]) {
-            script {
-                def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-                retry(3) {
-                    echo "Deploying to ${params.ENVIRONMENT} environment..."
-                    sh """
-                        helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                        --namespace ${params.ENVIRONMENT} \
-                        --set ${chartValues} || { echo 'Helm deployment failed!'; exit 1; }
-                    """
+        stage('Deploy to QA/Staging with Helm') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG')]) {
+                    script {
+                        def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+                        retry(3) {
+                            echo "Deploying to ${params.ENVIRONMENT} environment..."
+                            sh """
+                                helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                                --namespace ${params.ENVIRONMENT} \
+                                --set ${chartValues} || { echo 'Helm deployment failed!'; exit 1; }
+                            """
+                        }
+                    }
                 }
             }
         }
-    }
-}
 
         stage('Monitor Deployment (Pods + Web Health Check)') {
             steps {
@@ -249,6 +249,19 @@ stage('Deploy to QA/Staging with Helm') {
                     echo "Cleaning up unused Docker images..."
                     sh """
                         docker image prune -f || { echo 'Docker image cleanup failed!'; exit 1; }
+                    """
+                }
+            }
+        }
+
+        // ✅ ✅ ✅ Slack Notification Stage added here as you requested
+        stage('Slack Notification') {
+            steps {
+                script {
+                    def message = "*Deployment Status:* ✅ Successful\n*Environment:* ${params.ENVIRONMENT}\n*Build:* #${BUILD_NUMBER}"
+                    sh """
+                        curl -X POST -H 'Content-type: application/json' \
+                        --data '{"text": "${message}"}' ${SLACK_WEBHOOK_URL}
                     """
                 }
             }
