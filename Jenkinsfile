@@ -197,40 +197,42 @@ pipeline {
             }
         }
 
-        stage('Monitor Deployment (Pods + Web Health Check)') {
-            steps {
-                script {
-                    echo "Monitoring deployment status..."
-                    retry(3) {
-                        // Passing the params.ENVIRONMENT as an environment variable to the shell script
-                        withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
-                            sh '''#!/bin/bash
-                                kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                            '''
-                            sh '''#!/bin/bash
-                                POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                                if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                    echo "❌ Not all pods are running."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
-                    retry(3) {
-                        // Passing the WEBSITE_URL as an environment variable
-                        withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
-                            sh '''#!/bin/bash
-                                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                                if [ "$STATUS_CODE" -ne 200 ]; then
-                                    echo "❌ Website health check failed."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
+// Monitoring Deployment for QA/Staging
+stage('Monitor Deployment (Pods + Web Health Check)') {
+    when {
+        expression { return params.ENVIRONMENT != 'prod' } // Only for QA/Staging
+    }
+    steps {
+        script {
+            echo "Monitoring deployment status..."
+            retry(3) {
+                withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
+                    sh '''#!/bin/bash
+                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
+                    '''
+                    sh '''#!/bin/bash
+                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        if [[ "$POD_STATUS" != *"Running"* ]]; then
+                            echo "❌ Not all pods are running."
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+            retry(3) {
+                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                    sh '''#!/bin/bash
+                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                        if [ "$STATUS_CODE" -ne 200 ]; then
+                            echo "❌ Website health check failed."
+                            exit 1
+                        fi
+                    '''
                 }
             }
         }
+    }
+}
 
         stage('Approval for Production') {
             when {
@@ -266,6 +268,43 @@ pipeline {
                 }
             }
         }
+
+// Monitoring for Production Deployment
+stage('Monitor Deployment for Production (Pods + Web Health Check)') {
+    when {
+        expression { return params.ENVIRONMENT == 'prod' }
+    }
+    steps {
+        script {
+            echo "Monitoring production deployment status..."
+            retry(3) {
+                withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
+                    sh '''#!/bin/bash
+                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
+                    '''
+                    sh '''#!/bin/bash
+                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        if [[ "$POD_STATUS" != *"Running"* ]]; then
+                            echo "❌ Not all pods are running."
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+            retry(3) {
+                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                    sh '''#!/bin/bash
+                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                        if [ "$STATUS_CODE" -ne 200 ]; then
+                            echo "❌ Website health check failed."
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+        }
+    }
+}
 
         stage('Docker Image Cleanup') {
             steps {
