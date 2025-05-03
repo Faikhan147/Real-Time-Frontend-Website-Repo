@@ -196,33 +196,35 @@ pipeline {
                 }
             }
         }
-
-        stage('Monitor Deployment (Pods + Web Health Check)') {
-            steps {
-                script {
-                    echo "Monitoring deployment status..."
-                    retry(3) {
-                        sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
-                        sh '''
-                            POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
-                            if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                echo "❌ Not all pods are running."
-                                exit 1
-                            fi
-                        '''
-                    }
-                    retry(3) {
-                        sh '''
-                            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
-                            if [ "$STATUS_CODE" -ne 200 ]; then
-                                echo "❌ Website health check failed."
-                                exit 1
-                            fi
-                        '''
-                    }
-                }
+        
+stage('Monitor Deployment (Pods + Web Health Check)') {
+    steps {
+        script {
+            echo "Monitoring deployment status..."
+            retry(3) {
+                sh """
+                    kubectl get pods -n "${params.ENVIRONMENT}" || { echo 'Failed to get pods!'; exit 1; }
+                """
+                sh '''
+                    POD_STATUS=$(kubectl get pods -n "${params.ENVIRONMENT}" -o jsonpath='{.items[*].status.phase}')
+                    if [[ "$POD_STATUS" != *"Running"* ]]; then
+                        echo "❌ Not all pods are running."
+                        exit 1
+                    fi
+                '''
+            }
+            retry(3) {
+                sh '''
+                    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WEBSITE_URL}")
+                    if [ "$STATUS_CODE" -ne 200 ]; then
+                        echo "❌ Website health check failed."
+                        exit 1
+                    fi
+                '''
             }
         }
+    }
+}
 
         stage('Approval for Production') {
             when {
