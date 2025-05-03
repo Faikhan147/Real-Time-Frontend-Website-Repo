@@ -17,20 +17,17 @@ pipeline {
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
         HELM_CHART_DIR = "helm"
-        DOCKER_USER = credentials('dockerhub-credentials').username
-        DOCKER_PASS = credentials('dockerhub-credentials').password
         WEBSITE_URL = credentials('website-url')
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
                 checkout([ 
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH}"]], 
-                    userRemoteConfigs: [[ 
-                        url: "${params.REPO_URL}", 
+                    userRemoteConfigs: [[
+                        url: "${params.REPO_URL}",
                         credentialsId: 'github-credentials'
                     ]]
                 ])
@@ -96,10 +93,9 @@ pipeline {
 
         stage('DockerHub Login') {
             steps {
-                script {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     echo "Logging in to DockerHub..."
-                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || \
-                    { echo 'DockerHub login failed!'; exit 1; }
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || { echo 'DockerHub login failed!'; exit 1; }"
                 }
             }
         }
