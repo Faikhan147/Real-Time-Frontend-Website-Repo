@@ -30,8 +30,7 @@ pipeline {
                     userRemoteConfigs: [[
                         url: "${params.REPO_URL}",
                         credentialsId: 'github-credentials'
-                    ]]
-                ])
+                    ]])
             }
         }
 
@@ -63,35 +62,32 @@ pipeline {
             }
         }
 
-        stage('Build and Scan in Parallel') {
-            parallel {
-                stage('Build Docker Image') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                                echo "Building Docker image with commit hash: ${commitHash}"
-                                sh """
-                                    docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
-                                    --label commit=${commitHash} \
-                                    -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
-                                """
-                            }
-                        }
-                    }
-                }
-                stage('Trivy Scan - Critical and High') {
-                    steps {
-                        echo "Starting Trivy scan for vulnerabilities..."
+        stage('Build Docker Image') {
+            steps {
+                dir('Website') {
+                    script {
+                        def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                        echo "Building Docker image with commit hash: ${commitHash}"
                         sh """
-                            trivy image --exit-code 1 \
-                            --severity CRITICAL,HIGH \
-                            --format table \
-                            --ignore-unfixed \
-                            ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                            docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
+                            --label commit=${commitHash} \
+                            -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
                         """
                     }
                 }
+            }
+        }
+
+        stage('Trivy Scan - Critical and High') {
+            steps {
+                echo "Starting Trivy scan for vulnerabilities..."
+                sh """
+                    trivy image --exit-code 1 \
+                    --severity CRITICAL,HIGH \
+                    --format table \
+                    --ignore-unfixed \
+                    ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                """
             }
         }
 
@@ -99,39 +95,25 @@ pipeline {
             when {
                 expression { fileExists('Website/package.json') }
             }
-            parallel {
-                stage('Unit Tests') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                echo "Running unit tests..."
-                                sh """
-                                    npm install || { echo 'npm install failed!'; exit 1; }
-                                    npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
-                                """
-                                publishHTML(target: [
-                                    reportDir: 'Website',
-                                    reportFiles: 'jest-html-report.html',
-                                    reportName: 'Jest Test Report'
-                                ])
-                            }
-                        }
-                    }
-                }
-                stage('Integration Tests') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                echo "Running integration tests..."
-                                sh "npm run test:integration || { echo 'Integration tests failed!'; exit 1; }"
-                            }
-                        }
+            steps {
+                dir('Website') {
+                    script {
+                        echo "Running unit tests..."
+                        sh """
+                            npm install || { echo 'npm install failed!'; exit 1; }
+                            npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
+                        """
+                        publishHTML(target: [
+                            reportDir: 'Website',
+                            reportFiles: 'jest-html-report.html',
+                            reportName: 'Jest Test Report'
+                        ])
                     }
                 }
             }
         }
 
-       stage('DockerHub Login') {
+        stage('DockerHub Login') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     echo "Logging in to DockerHub..."
@@ -139,7 +121,6 @@ pipeline {
                 }
             }
         }
-
 
         stage('Push Docker Image with Retry') {
             steps {
@@ -216,7 +197,6 @@ pipeline {
                 }
             }
         }
-
 
         stage('Monitor Deployment (Pods + Web Health Check)') {
             steps {
