@@ -65,35 +65,32 @@ pipeline {
             }
         }
 
-        stage('Build and Scan in Parallel') {
-            parallel {
-                stage('Build Docker Image') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                                echo "Building Docker image with commit hash: ${commitHash}"
-                                sh """
-                                    docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
-                                    --label commit=${commitHash} \
-                                    -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
-                                """
-                            }
-                        }
-                    }
-                }
-                stage('Trivy Scan - Critical and High') {
-                    steps {
-                        echo "Starting Trivy scan for vulnerabilities..."
+        stage('Build Docker Image') {
+            steps {
+                dir('Website') {
+                    script {
+                        def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                        echo "Building Docker image with commit hash: ${commitHash}"
                         sh """
-                            trivy image --exit-code 1 \
-                            --severity CRITICAL,HIGH \
-                            --format table \
-                            --ignore-unfixed \
-                            ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                            docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
+                            --label commit=${commitHash} \
+                            -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
                         """
                     }
                 }
+            }
+        }
+
+        stage('Trivy Scan - Critical and High') {
+            steps {
+                echo "Starting Trivy scan for vulnerabilities..."
+                sh """
+                    trivy image --exit-code 1 \
+                    --severity CRITICAL,HIGH \
+                    --format table \
+                    --ignore-unfixed \
+                    ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                """
             }
         }
 
@@ -148,7 +145,6 @@ pipeline {
             }
         }
 
-
         stage('Approval for Production') {
             when {
                 expression { return params.ENVIRONMENT == 'prod' }
@@ -180,3 +176,5 @@ pipeline {
                 }
             }
         }
+    }
+}
