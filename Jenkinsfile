@@ -20,18 +20,19 @@ pipeline {
         WEBSITE_URL = credentials('website-url')
     }
 
-   stage('Checkout Code') {
-    steps {
-        checkout([
-            $class: 'GitSCM',
-            branches: [[name: "*/${params.BRANCH}"]],
-            userRemoteConfigs: [[
-                url: "${params.REPO_URL}",
-                credentialsId: 'github-credentials'
-            ]]
-        ])
-    }
-}
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${params.BRANCH}"]],
+                    userRemoteConfigs: [[
+                        url: "${params.REPO_URL}",
+                        credentialsId: 'github-credentials'
+                    ]]
+                ])
+            }
+        }
 
         stage('SonarQube Code Analysis') {
             steps {
@@ -184,3 +185,4 @@ pipeline {
             }
         }
     }
+}
