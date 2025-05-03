@@ -8,22 +8,25 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = "faisalkhan35/my-website"
+        DOCKER_IMAGE = "faisalkhan35/my-website:${BUILD_NUMBER}"
         SLACK_WEBHOOK_URL = credentials('slack-webhook')
         FRONTEND_IMAGE_NAME = "faisalkhan35/my-website"
-        TAG = "${BUILD_NUMBER}"
+        TAG = "latest"
         SONAR_PROJECT_KEY = "Website"
         SONAR_PROJECT_NAME = "Frontend-Website"
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
-        HELM_CHART_DIR = "helm/website-chart"
+        HELM_CHART_DIR = "helm"
+        DOCKER_USER = credentials('dockerhub-credentials').username.toString()
+        DOCKER_PASS = credentials('dockerhub-credentials').password.toString()
         WEBSITE_URL = credentials('website-url')
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
-                checkout([
+                checkout([ 
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH}"]],
                     userRemoteConfigs: [[
@@ -62,40 +65,80 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                dir('Website') {
-                    script {
-                        def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                        echo "Building Docker image with commit hash: ${commitHash}"
+        stage('Build and Scan in Parallel') {
+            parallel {
+                stage('Build Docker Image') {
+                    steps {
+                        dir('Website') {
+                            script {
+                                def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                                echo "Building Docker image with commit hash: ${commitHash}"
+                                sh """
+                                    docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
+                                    --label commit=${commitHash} \
+                                    -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
+                                """
+                            }
+                        }
+                    }
+                }
+                stage('Trivy Scan - Critical and High') {
+                    steps {
+                        echo "Starting Trivy scan for vulnerabilities..."
                         sh """
-                            docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
-                            --label commit=${commitHash} \
-                            -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
+                            trivy image --exit-code 1 \
+                            --severity CRITICAL,HIGH \
+                            --format table \
+                            --ignore-unfixed \
+                            ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
                         """
                     }
                 }
             }
         }
 
-        stage('Trivy Scan - Critical and High') {
-            steps {
-                echo "Starting Trivy scan for vulnerabilities..."
-                sh """
-                    trivy image --exit-code 1 \
-                    --severity CRITICAL,HIGH \
-                    --format table \
-                    --ignore-unfixed \
-                    ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
-                """
+        stage('Run Unit & Integration Tests') {
+            when {
+                expression { fileExists('Website/package.json') }
+            }
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        dir('Website') {
+                            script {
+                                echo "Running unit tests..."
+                                sh """
+                                    npm install || { echo 'npm install failed!'; exit 1; }
+                                    npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
+                                """
+                                publishHTML(target: [
+                                    reportDir: 'Website',
+                                    reportFiles: 'jest-html-report.html',
+                                    reportName: 'Jest Test Report'
+                                ])
+                            }
+                        }
+                    }
+                }
+                stage('Integration Tests') {
+                    steps {
+                        dir('Website') {
+                            script {
+                                echo "Running integration tests..."
+                                sh "npm run test:integration || { echo 'Integration tests failed!'; exit 1; }"
+                            }
+                        }
+                    }
+                }
             }
         }
 
         stage('DockerHub Login') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                script {
                     echo "Logging in to DockerHub..."
-                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || { echo 'DockerHub login failed!'; exit 1; }"
+                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || \
+                    { echo 'DockerHub login failed!'; exit 1; }
                 }
             }
         }
@@ -109,6 +152,18 @@ pipeline {
             }
         }
 
+        stage('Helm Lint and Test') {
+            steps {
+                script {
+                    echo "Linting and testing Helm chart..."
+                    sh """
+                        helm lint ${HELM_CHART_DIR} || { echo 'Helm lint failed!'; exit 1; }
+                        helm template website-${params.ENVIRONMENT} ${HELM_CHART_DIR} || { echo 'Helm template failed!'; exit 1; }
+                    """
+                }
+            }
+        }
+
         stage('AWS EKS Update Kubeconfig') {
             steps {
                 script {
@@ -117,37 +172,76 @@ pipeline {
                 }
             }
         }
-        
-stage('Deploy to QA/Staging with Helm') {
-    when {
-        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-    }
-    steps {
-        script {
-            // Namespace ko check aur create karna
-            sh """
-                kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
-            """
-            
-            def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-            
-            retry(3) {
-                echo "Deploying to ${params.ENVIRONMENT} environment..."
-                sh """
-                    helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                    --namespace ${params.ENVIRONMENT} \
-                    --set ${chartValues} \
-                    --set resources.requests.memory=128Mi \
-                    --set resources.requests.cpu=100m \
-                    --set resources.limits.memory=256Mi \
-                    --set resources.limits.cpu=250m \
-                    --debug || { echo 'Helm deployment failed!'; exit 1; }
-                """
+
+        stage('Deploy to QA/Staging with Helm') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                script {
+                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+                    retry(3) {
+                        echo "Deploying to ${params.ENVIRONMENT} environment..."
+                        sh """
+                            helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                            --namespace ${params.ENVIRONMENT} \
+                            --set ${chartValues} \
+                            --set resources.requests.memory=128Mi \
+                            --set resources.requests.cpu=100m \
+                            --set resources.limits.memory=256Mi \
+                            --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
+                        """
+                    }
+                }
             }
         }
-    }
-}
 
+        stage('Rollback (if needed)') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                script {
+                    echo "Checking if rollback is needed..."
+                    def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
+                    if (releaseHistory.contains('"revision":')) {
+                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                        echo "Rolling back to revision ${lastRevision}"
+                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+                    } else {
+                        echo "No previous revision found. Skipping rollback."
+                    }
+                }
+            }
+        }
+
+
+        stage('Monitor Deployment (Pods + Web Health Check)') {
+            steps {
+                script {
+                    echo "Monitoring deployment status..."
+                    retry(3) {
+                        sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
+                        sh '''
+                            POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
+                            if [[ "$POD_STATUS" != *"Running"* ]]; then
+                                echo "❌ Not all pods are running."
+                                exit 1
+                            fi
+                        '''
+                    }
+                    retry(3) {
+                        sh '''
+                            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
+                            if [ "$STATUS_CODE" -ne 200 ]; then
+                                echo "❌ Website health check failed."
+                                exit 1
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
 
         stage('Approval for Production') {
             when {
@@ -164,13 +258,7 @@ stage('Deploy to QA/Staging with Helm') {
             }
             steps {
                 script {
-                    // Namespace ko check aur create karna
-                    sh """
-                        kubectl get namespace prod || kubectl create namespace prod
-                    """
-                    
                     def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=prod"
-                    
                     retry(3) {
                         echo "Deploying to Production..."
                         sh """
@@ -184,6 +272,52 @@ stage('Deploy to QA/Staging with Helm') {
                         """
                     }
                 }
+            }
+        }
+
+        stage('Docker Image Cleanup') {
+            steps {
+                script {
+                    echo "Cleaning up unused Docker images..."
+                    sh """
+                        docker image prune -f || { echo 'Docker image cleanup failed!'; exit 1; }
+                    """
+                }
+            }
+        }
+
+        stage('Slack Notification') {
+            steps {
+                script {
+                    def message = "*Deployment Status:* ✅ Successful\n*Environment:* ${params.ENVIRONMENT}\n*Build:* #${BUILD_NUMBER}"
+                    sh """
+                        curl -X POST -H 'Content-type: application/json' \
+                        --data '{"text": "${message}"}' ${SLACK_WEBHOOK_URL}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '✅ Deployment successful'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+            }
+        }
+        failure {
+            script {
+                echo "❌ Pipeline failed! Rolling back..."
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+                
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
             }
         }
     }
