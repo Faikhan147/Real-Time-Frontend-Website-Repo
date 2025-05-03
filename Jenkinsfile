@@ -202,24 +202,25 @@ stage('Monitor Deployment (Pods + Web Health Check)') {
         script {
             echo "Monitoring deployment status..."
             retry(3) {
-                sh 'bash -c "kubectl get pods -n ${params.ENVIRONMENT} || { echo \'Failed to get pods!\'; exit 1; }"'
-                sh '''
-                    bash -c "
-                    POD_STATUS=\$(kubectl get pods -n \"${params.ENVIRONMENT}\" -o jsonpath='{.items[*].status.phase}')
-                    if [[ \"\$POD_STATUS\" != *\"Running\"* ]]; then
-                        echo \"❌ Not all pods are running.\"
+                // Use bash explicitly for the whole script
+                sh '''#!/bin/bash
+                    kubectl get pods -n "${params.ENVIRONMENT}" || { echo 'Failed to get pods!'; exit 1; }
+                '''
+                sh '''#!/bin/bash
+                    POD_STATUS=$(kubectl get pods -n "${params.ENVIRONMENT}" -o jsonpath='{.items[*].status.phase}')
+                    if [[ "$POD_STATUS" != *"Running"* ]]; then
+                        echo "❌ Not all pods are running."
                         exit 1
-                    fi"
+                    fi
                 '''
             }
             retry(3) {
-                sh '''
-                    bash -c "
-                    STATUS_CODE=\$(curl -s -o /dev/null -w \"%{http_code}\" ${WEBSITE_URL})
-                    if [ \"\$STATUS_CODE\" -ne 200 ]; then
-                        echo \"❌ Website health check failed.\"
+                sh '''#!/bin/bash
+                    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
+                    if [ "$STATUS_CODE" -ne 200 ]; then
+                        echo "❌ Website health check failed."
                         exit 1
-                    fi"
+                    fi
                 '''
             }
         }
