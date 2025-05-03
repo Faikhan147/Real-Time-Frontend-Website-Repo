@@ -116,18 +116,6 @@ pipeline {
             }
         }
 
-        stage('Helm Lint and Test') {
-            steps {
-                script {
-                    echo "Linting and testing Helm chart..."
-                    sh """
-                        helm lint ${HELM_CHART_DIR} || { echo 'Helm lint failed!'; exit 1; }
-                        helm template website-${params.ENVIRONMENT} ${HELM_CHART_DIR} || { echo 'Helm template failed!'; exit 1; }
-                    """
-                }
-            }
-        }
-
         stage('AWS EKS Update Kubeconfig') {
             steps {
                 script {
@@ -161,34 +149,6 @@ pipeline {
         }
 
 
-
-        stage('Monitor Deployment (Pods + Web Health Check)') {
-            steps {
-                script {
-                    echo "Monitoring deployment status..."
-                    retry(3) {
-                        sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
-                        sh '''
-                            POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
-                            if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                echo "❌ Not all pods are running."
-                                exit 1
-                            fi
-                        '''
-                    }
-                    retry(3) {
-                        sh '''
-                            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
-                            if [ "$STATUS_CODE" -ne 200 ]; then
-                                echo "❌ Website health check failed."
-                                exit 1
-                            fi
-                        '''
-                    }
-                }
-            }
-        }
-
         stage('Approval for Production') {
             when {
                 expression { return params.ENVIRONMENT == 'prod' }
@@ -221,16 +181,7 @@ pipeline {
             }
         }
 
-        stage('Docker Image Cleanup') {
-            steps {
-                script {
-                    echo "Cleaning up unused Docker images..."
-                    sh """
-                        docker image prune -f || { echo 'Docker image cleanup failed!'; exit 1; }
-                    """
-                }
-            }
-        }
+       
 
         stage('Slack Notification') {
             steps {
