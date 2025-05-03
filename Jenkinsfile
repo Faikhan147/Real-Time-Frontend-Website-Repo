@@ -21,16 +21,16 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout Code') {
             steps {
-                checkout([ 
+                checkout([
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH}"]],
                     userRemoteConfigs: [[
                         url: "${params.REPO_URL}",
                         credentialsId: 'github-credentials'
-                    ]])
+                    ]]
+                ])
             }
         }
 
@@ -158,7 +158,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Namespace ko check aur create karna
                     sh """
                         kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
                     """
@@ -240,7 +239,6 @@ pipeline {
             }
             steps {
                 script {
-                    // Namespace ko check aur create karna
                     sh """
                         kubectl get namespace prod || kubectl create namespace prod
                     """
