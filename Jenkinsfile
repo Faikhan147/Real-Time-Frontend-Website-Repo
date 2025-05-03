@@ -17,7 +17,6 @@ pipeline {
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
         HELM_CHART_DIR = "helm"
-        KUBECONFIG = credentials('kubeconfig-credentials')
         DOCKER_USER = credentials('dockerhub-credentials').username
         DOCKER_PASS = credentials('dockerhub-credentials').password
         WEBSITE_URL = credentials('website-url')
@@ -27,7 +26,7 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                checkout([
+                checkout([ 
                     $class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH}"]],
                     userRemoteConfigs: [[
@@ -165,26 +164,33 @@ pipeline {
             }
         }
 
+        stage('AWS EKS Update Kubeconfig') {
+            steps {
+                script {
+                    echo "Updating kubeconfig for EKS..."
+                    sh 'aws eks update-kubeconfig --region ap-south-1 --name Faisal || { echo "Failed to update kubeconfig!"; exit 1; }'
+                }
+            }
+        }
+
         stage('Deploy to QA/Staging with Helm') {
             when {
                 expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
             }
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG')]) {
-                    script {
-                        def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-                        retry(3) {
-                            echo "Deploying to ${params.ENVIRONMENT} environment..."
-                            sh """
-                                helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                                --namespace ${params.ENVIRONMENT} \
-                                --set ${chartValues} \
-                                --set resources.requests.memory=128Mi \
-                                --set resources.requests.cpu=100m \
-                                --set resources.limits.memory=256Mi \
-                                --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
-                            """
-                        }
+                script {
+                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+                    retry(3) {
+                        echo "Deploying to ${params.ENVIRONMENT} environment..."
+                        sh """
+                            helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                            --namespace ${params.ENVIRONMENT} \
+                            --set ${chartValues} \
+                            --set resources.requests.memory=128Mi \
+                            --set resources.requests.cpu=100m \
+                            --set resources.limits.memory=256Mi \
+                            --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
+                        """
                     }
                 }
             }
@@ -193,27 +199,25 @@ pipeline {
         stage('Monitor Deployment (Pods + Web Health Check)') {
             steps {
                 script {
-                    withCredentials([file(credentialsId: 'kubeconfig-credentials', variable: 'KUBECONFIG')]) {
-                        echo "Monitoring deployment status..."
-                        retry(3) {
-                            sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
-                            sh '''
-                                POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
-                                if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                    echo "❌ Not all pods are running."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                        retry(3) {
-                            sh '''
-                                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
-                                if [ "$STATUS_CODE" -ne 200 ]; then
-                                    echo "❌ Website health check failed."
-                                    exit 1
-                                fi
-                            '''
-                        }
+                    echo "Monitoring deployment status..."
+                    retry(3) {
+                        sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
+                        sh '''
+                            POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
+                            if [[ "$POD_STATUS" != *"Running"* ]]; then
+                                echo "❌ Not all pods are running."
+                                exit 1
+                            fi
+                        '''
+                    }
+                    retry(3) {
+                        sh '''
+                            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
+                            if [ "$STATUS_CODE" -ne 200 ]; then
+                                echo "❌ Website health check failed."
+                                exit 1
+                            fi
+                        '''
                     }
                 }
             }
@@ -291,9 +295,9 @@ pipeline {
                     string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
                     string(name: 'ENV', value: "${params.ENVIRONMENT}")
                 ]
-
+                
                 def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || { echo 'Rollback failed!'; exit 1; }"
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
             }
         }
     }
