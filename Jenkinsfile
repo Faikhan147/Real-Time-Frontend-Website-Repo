@@ -8,17 +8,15 @@ pipeline {
     }
 
     environment {
-        DOCKER_IMAGE = "faisalkhan35/my-website:${BUILD_NUMBER}"
+        DOCKER_IMAGE = "faisalkhan35/my-website"
         SLACK_WEBHOOK_URL = credentials('slack-webhook')
         FRONTEND_IMAGE_NAME = "faisalkhan35/my-website"
-        TAG = "latest"
+        TAG = "${BUILD_NUMBER}"
         SONAR_PROJECT_KEY = "Website"
         SONAR_PROJECT_NAME = "Frontend-Website"
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
-        HELM_CHART_DIR = "helm"
-        DOCKER_USER = credentials('dockerhub-credentials').username.toString()
-        DOCKER_PASS = credentials('dockerhub-credentials').password.toString()
+        HELM_CHART_DIR = "helm/website-chart"
         WEBSITE_URL = credentials('website-url')
     }
 
@@ -133,15 +131,15 @@ pipeline {
             }
         }
 
-        stage('DockerHub Login') {
+       stage('DockerHub Login') {
             steps {
-                script {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     echo "Logging in to DockerHub..."
-                    echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || \
-                    { echo 'DockerHub login failed!'; exit 1; }
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin || { echo 'DockerHub login failed!'; exit 1; }"
                 }
             }
         }
+
 
         stage('Push Docker Image with Retry') {
             steps {
@@ -179,6 +177,10 @@ pipeline {
             }
             steps {
                 script {
+                    // Namespace ko check aur create karna
+                    sh """
+                        kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
+                    """
                     def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
                     retry(3) {
                         echo "Deploying to ${params.ENVIRONMENT} environment..."
@@ -258,6 +260,10 @@ pipeline {
             }
             steps {
                 script {
+                    // Namespace ko check aur create karna
+                    sh """
+                        kubectl get namespace prod || kubectl create namespace prod
+                    """
                     def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=prod"
                     retry(3) {
                         echo "Deploying to Production..."
