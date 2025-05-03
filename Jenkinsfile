@@ -196,4 +196,129 @@ pipeline {
             }
         }
 
-        
+        stage('Rollback (if needed)') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                script {
+                    echo "Checking if rollback is needed..."
+                    def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
+                    if (releaseHistory.contains('"revision":')) {
+                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                        echo "Rolling back to revision ${lastRevision}"
+                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+                    } else {
+                        echo "No previous revision found. Skipping rollback."
+                    }
+                }
+            }
+        }
+
+
+        stage('Monitor Deployment (Pods + Web Health Check)') {
+            steps {
+                script {
+                    echo "Monitoring deployment status..."
+                    retry(3) {
+                        sh "kubectl get pods -n ${params.ENVIRONMENT} || { echo 'Failed to get pods!'; exit 1; }"
+                        sh '''
+                            POD_STATUS=$(kubectl get pods -n ${params.ENVIRONMENT} -o jsonpath='{.items[*].status.phase}')
+                            if [[ "$POD_STATUS" != *"Running"* ]]; then
+                                echo "❌ Not all pods are running."
+                                exit 1
+                            fi
+                        '''
+                    }
+                    retry(3) {
+                        sh '''
+                            STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${WEBSITE_URL})
+                            if [ "$STATUS_CODE" -ne 200 ]; then
+                                echo "❌ Website health check failed."
+                                exit 1
+                            fi
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Approval for Production') {
+            when {
+                expression { return params.ENVIRONMENT == 'prod' }
+            }
+            steps {
+                input message: "Deploy to Production?", ok: "Yes, deploy now"
+            }
+        }
+
+        stage('Deploy to Production with Helm') {
+            when {
+                expression { return params.ENVIRONMENT == 'prod' }
+            }
+            steps {
+                script {
+                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=prod"
+                    retry(3) {
+                        echo "Deploying to Production..."
+                        sh """
+                            helm upgrade --install website-prod ${HELM_CHART_DIR} \
+                            --namespace prod \
+                            --set ${chartValues} \
+                            --set resources.requests.memory=128Mi \
+                            --set resources.requests.cpu=100m \
+                            --set resources.limits.memory=256Mi \
+                            --set resources.limits.cpu=250m || { echo 'Production deployment failed!'; exit 1; }
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Docker Image Cleanup') {
+            steps {
+                script {
+                    echo "Cleaning up unused Docker images..."
+                    sh """
+                        docker image prune -f || { echo 'Docker image cleanup failed!'; exit 1; }
+                    """
+                }
+            }
+        }
+
+        stage('Slack Notification') {
+            steps {
+                script {
+                    def message = "*Deployment Status:* ✅ Successful\n*Environment:* ${params.ENVIRONMENT}\n*Build:* #${BUILD_NUMBER}"
+                    sh """
+                        curl -X POST -H 'Content-type: application/json' \
+                        --data '{"text": "${message}"}' ${SLACK_WEBHOOK_URL}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '✅ Deployment successful'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+            }
+        }
+        failure {
+            script {
+                echo "❌ Pipeline failed! Rolling back..."
+                build job: 'Slack-Notifier', parameters: [
+                    string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
+                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
+                ]
+                
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
+            }
+        }
+    }
+}
