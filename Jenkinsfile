@@ -178,24 +178,26 @@ pipeline {
             }
         }
 
-        stage('Rollback (if needed)') {
-            when {
-                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-            }
-            steps {
-                script {
-                    echo "Checking if rollback is needed..."
-                    def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
-                    if (releaseHistory.contains('"revision":')) {
-                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                        echo "Rolling back to revision ${lastRevision}"
-                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
-                    } else {
-                        echo "No previous revision found. Skipping rollback."
-                    }
-                }
+stage('Rollback (if needed)') {
+    when {
+        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+    }
+    steps {
+        script {
+            echo "Checking if rollback is needed..."
+            def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
+            if (releaseHistory.contains('"revision":')) {
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                echo "Rolling back to revision ${lastRevision}"
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+            } else {
+                echo "No previous revision found. Skipping rollback."
             }
         }
+    }
+}
+
+
         
 stage('Monitor Deployment (Pods + Web Health Check)') {
     steps {
@@ -231,6 +233,7 @@ stage('Monitor Deployment (Pods + Web Health Check)') {
         }
     }
 }
+
 
 
         stage('Approval for Production') {
@@ -293,25 +296,25 @@ stage('Monitor Deployment (Pods + Web Health Check)') {
     }
 
     post {
-        success {
-            script {
-                build job: 'Slack-Notifier', parameters: [
-                    string(name: 'STATUS', value: '✅ Deployment successful'),
-                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
-                ]
-            }
+    success {
+        script {
+            build job: 'Slack-Notifier', parameters: [
+                string(name: 'STATUS', value: '✅ Deployment successful'),
+                string(name: 'ENV', value: "${params.ENVIRONMENT}")
+            ]
         }
-        failure {
-            script {
-                echo "❌ Pipeline failed! Rolling back..."
-                build job: 'Slack-Notifier', parameters: [
-                    string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
-                    string(name: 'ENV', value: "${params.ENVIRONMENT}")
-                ]
-                
-                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
-            }
+    }
+    failure {
+        script {
+            echo "❌ Pipeline failed! Rolling back..."
+            build job: 'Slack-Notifier', parameters: [
+                string(name: 'STATUS', value: '❌ Deployment failed - rollback initiated'),
+                string(name: 'ENV', value: "${params.ENVIRONMENT}")
+            ]
+            
+            def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+            sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT} || echo 'Rollback failed!'"
         }
     }
 }
+
