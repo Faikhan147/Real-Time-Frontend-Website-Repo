@@ -17,8 +17,8 @@ pipeline {
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
         HELM_CHART_DIR = "helm"
-        DOCKER_USER = credentials('dockerhub-credentials').username.toString()
-        DOCKER_PASS = credentials('dockerhub-credentials').password.toString()
+        DOCKER_USER = credentials('dockerhub-credentials').username
+        DOCKER_PASS = credentials('dockerhub-credentials').password
         WEBSITE_URL = credentials('website-url')
     }
 
@@ -28,9 +28,9 @@ pipeline {
             steps {
                 checkout([ 
                     $class: 'GitSCM',
-                    branches: [[name: "*/${params.BRANCH}"]],
-                    userRemoteConfigs: [[
-                        url: "${params.REPO_URL}",
+                    branches: [[name: "*/${params.BRANCH}"]], 
+                    userRemoteConfigs: [[ 
+                        url: "${params.REPO_URL}", 
                         credentialsId: 'github-credentials'
                     ]]
                 ])
