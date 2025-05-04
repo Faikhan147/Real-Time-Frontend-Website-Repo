@@ -18,6 +18,7 @@ pipeline {
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
         HELM_CHART_DIR = "helm/website-chart"
         WEBSITE_URL = credentials('website-url')
+
     }
 
     stages {
@@ -53,45 +54,41 @@ pipeline {
             }
         }
 
-        stage('Parallel Steps') {
-            parallel {
-                stage('SonarQube Quality Gate Check') {
-                    steps {
-                        timeout(time: 5, unit: 'MINUTES') {
-                            echo "Waiting for SonarQube Quality Gate..."
-                            waitForQualityGate abortPipeline: true
-                        }
-                    }
+        stage('SonarQube Quality Gate Check') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    echo "Waiting for SonarQube Quality Gate..."
+                    waitForQualityGate abortPipeline: true
                 }
+            }
+        }
 
-                stage('Build Docker Image') {
-                    steps {
-                        dir('Website') {
-                            script {
-                                def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                                echo "Building Docker image with commit hash: ${commitHash}"
-                                sh """
-                                    docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
-                                    --label commit=${commitHash} \
-                                    -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
-                                """
-                            }
-                        }
-                    }
-                }
-
-                stage('Trivy Scan - Critical and High') {
-                    steps {
-                        echo "Starting Trivy scan for vulnerabilities..."
+        stage('Build Docker Image') {
+            steps {
+                dir('Website') {
+                    script {
+                        def commitHash = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                        echo "Building Docker image with commit hash: ${commitHash}"
                         sh """
-                            trivy image --exit-code 1 \
-                            --severity CRITICAL,HIGH \
-                            --format table \
-                            --ignore-unfixed \
-                            ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                            docker build --cache-from ${DOCKER_IMAGE}:${TAG} \
+                            --label commit=${commitHash} \
+                            -t ${IMAGE_NAME_TAG} . || { echo 'Docker build failed!'; exit 1; }
                         """
                     }
                 }
+            }
+        }
+
+        stage('Trivy Scan - Critical and High') {
+            steps {
+                echo "Starting Trivy scan for vulnerabilities..."
+                sh """
+                    trivy image --exit-code 1 \
+                    --severity CRITICAL,HIGH \
+                    --format table \
+                    --ignore-unfixed \
+                    ${IMAGE_NAME_TAG} || { echo 'Trivy scan failed!'; exit 1; }
+                """
             }
         }
 
@@ -184,66 +181,65 @@ pipeline {
             }
         }
 
-        stage('Rollback (if needed)') {
-            when {
-                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+stage('Rollback (if needed)') {
+    when {
+        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+    }
+    steps {
+        script {
+            echo "Checking if rollback is needed..."
+
+            def revisionCount = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | wc -l", returnStdout: true).trim().toInteger()
+
+            // header + at least 2 revisions = 3 lines
+            if (revisionCount >= 3) {
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                echo "Rolling back to revision ${lastRevision}"
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+            } else {
+                echo "Not enough revisions to perform rollback. Skipping."
             }
-            steps {
-                script {
-                    echo "Checking if rollback is needed..."
+        }
+    }
+}
 
-                    def revisionCount = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | wc -l", returnStdout: true).trim().toInteger()
-
-                    // header + at least 2 revisions = 3 lines
-                    if (revisionCount >= 3) {
-                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                        echo "Rolling back to revision ${lastRevision}"
-                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
-                    } else {
-                        echo "Not enough revisions to perform rollback. Skipping."
-                    }
+// Monitoring Deployment for QA/Staging
+stage('Monitor Deployment (Pods + Website Health Check)') {
+    when {
+        expression { return params.ENVIRONMENT != 'prod' } // Only for QA/Staging
+    }
+    steps {
+        script {
+            echo "Monitoring deployment status..."
+            retry(3) {
+                withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
+                    sh '''#!/bin/bash
+                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
+                    '''
+                    sh '''#!/bin/bash
+                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        if [[ "$POD_STATUS" != *"Running"* ]]; then
+                            echo "❌ Not all pods are running."
+                            exit 1
+                        fi
+                    '''
+                }
+            }
+            retry(3) {
+                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                    sh '''#!/bin/bash
+                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                        if [ "$STATUS_CODE" -ne 200 ]; then
+                            echo "❌ Website health check failed."
+                            exit 1
+                        fi
+                    '''
                 }
             }
         }
+    }
+}
 
-         // Monitoring Deployment for QA/Staging
-        stage('Monitor Deployment (Pods + Website Health Check)') {
-            when {
-                expression { return params.ENVIRONMENT != 'prod' } // Only for QA/Staging
-            }
-            steps {
-                script {
-                    echo "Monitoring deployment status..."
-                    retry(3) {
-                        withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
-                            sh '''#!/bin/bash
-                                kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                            '''
-                            sh '''#!/bin/bash
-                                POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                                if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                    echo "❌ Not all pods are running."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
-                    retry(3) {
-                        withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
-                            sh '''#!/bin/bash
-                                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                                if [ "$STATUS_CODE" -ne 200 ]; then
-                                    echo "❌ Website health check failed."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-
-        // Approval for Production
         stage('Approval for Production') {
             when {
                 expression { return params.ENVIRONMENT == 'prod' }
@@ -253,7 +249,6 @@ pipeline {
             }
         }
 
-        // Deploy to Production with Helm
         stage('Deploy to Production with Helm') {
             when {
                 expression { return params.ENVIRONMENT == 'prod' }
@@ -280,44 +275,43 @@ pipeline {
             }
         }
 
-        // Monitoring for Production Deployment
-        stage('Monitor Deployment for Production (Pods + Website Health Check)') {
-            when {
-                expression { return params.ENVIRONMENT == 'prod' }
+// Monitoring for Production Deployment
+stage('Monitor Deployment for Production (Pods + Website Health Check)') {
+    when {
+        expression { return params.ENVIRONMENT == 'prod' }
+    }
+    steps {
+        script {
+            echo "Monitoring production deployment status..."
+            retry(3) {
+                withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
+                    sh '''#!/bin/bash
+                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
+                    '''
+                    sh '''#!/bin/bash
+                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        if [[ "$POD_STATUS" != *"Running"* ]]; then
+                            echo "❌ Not all pods are running."
+                            exit 1
+                        fi
+                    '''
+                }
             }
-            steps {
-                script {
-                    echo "Monitoring production deployment status..."
-                    retry(3) {
-                        withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
-                            sh '''#!/bin/bash
-                                kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                            '''
-                            sh '''#!/bin/bash
-                                POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                                if [[ "$POD_STATUS" != *"Running"* ]]; then
-                                    echo "❌ Not all pods are running."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
-                    retry(3) {
-                        withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
-                            sh '''#!/bin/bash
-                                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                                if [ "$STATUS_CODE" -ne 200 ]; then
-                                    echo "❌ Website health check failed."
-                                    exit 1
-                                fi
-                            '''
-                        }
-                    }
+            retry(3) {
+                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                    sh '''#!/bin/bash
+                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                        if [ "$STATUS_CODE" -ne 200 ]; then
+                            echo "❌ Website health check failed."
+                            exit 1
+                        fi
+                    '''
                 }
             }
         }
+    }
+}
 
-        // Docker Image Cleanup
         stage('Docker Image Cleanup') {
             steps {
                 script {
@@ -329,7 +323,6 @@ pipeline {
             }
         }
 
-        // Slack Notification
         stage('Slack Notification') {
             steps {
                 script {
