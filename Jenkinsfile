@@ -104,6 +104,7 @@ pipeline {
                             npm install || { echo 'npm install failed!'; exit 1; }
                             npm install --save-dev jest-html-reporter
                             npm run test -- --coverage --reporters=default --reporters=jest-html-reporter || { echo 'Unit tests failed!'; exit 1; }
+                            npm audit fix
                         """
                         publishHTML(target: [
                             reportDir: 'Website',
