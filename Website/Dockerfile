@@ -1,5 +1,5 @@
 FROM nginx:alpine
-RUN apt-get update && apt-get upgrade -y && apt-get install -y curl && apt-get clean
+RUN apk add --no-cache curl
 RUN rm -rf /usr/share/nginx/html/*
 COPY . /usr/share/nginx/html
 RUN echo "OK" > /usr/share/nginx/html/healthz
