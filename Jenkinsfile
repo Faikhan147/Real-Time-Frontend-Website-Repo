@@ -18,7 +18,6 @@ pipeline {
         IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
         HELM_CHART_DIR = "helm/website-chart"
         WEBSITE_URL = credentials('website-url')
-        KUBECONFIG = "/var/lib/jenkins/.kube/config"  // Add this line
 
     }
 
