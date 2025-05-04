@@ -180,24 +180,27 @@ pipeline {
             }
         }
 
-        stage('Rollback (if needed)') {
-            when {
-                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-            }
-            steps {
-                script {
-                    echo "Checking if rollback is needed..."
-                    def releaseHistory = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} --output json", returnStdout: true).trim()
-                    if (releaseHistory.contains('"revision":')) {
-                        def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
-                        echo "Rolling back to revision ${lastRevision}"
-                        sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
-                    } else {
-                        echo "No previous revision found. Skipping rollback."
-                    }
-                }
+stage('Rollback (if needed)') {
+    when {
+        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+    }
+    steps {
+        script {
+            echo "Checking if rollback is needed..."
+
+            def revisionCount = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | wc -l", returnStdout: true).trim().toInteger()
+
+            // header + at least 2 revisions = 3 lines
+            if (revisionCount >= 3) {
+                def lastRevision = sh(script: "helm history website-${params.ENVIRONMENT} --namespace ${params.ENVIRONMENT} | tail -2 | head -1 | awk '{print \$1}'", returnStdout: true).trim()
+                echo "Rolling back to revision ${lastRevision}"
+                sh "helm rollback website-${params.ENVIRONMENT} ${lastRevision} --namespace ${params.ENVIRONMENT}"
+            } else {
+                echo "Not enough revisions to perform rollback. Skipping."
             }
         }
+    }
+}
 
 // Monitoring Deployment for QA/Staging
 stage('Monitor Deployment (Pods + Website Health Check)') {
