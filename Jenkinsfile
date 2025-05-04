@@ -198,7 +198,7 @@ pipeline {
         }
 
 // Monitoring Deployment for QA/Staging
-stage('Monitor Deployment (Pods + Web Health Check)') {
+stage('Monitor Deployment (Pods + Website Health Check)') {
     when {
         expression { return params.ENVIRONMENT != 'prod' } // Only for QA/Staging
     }
@@ -270,7 +270,7 @@ stage('Monitor Deployment (Pods + Web Health Check)') {
         }
 
 // Monitoring for Production Deployment
-stage('Monitor Deployment for Production (Pods + Web Health Check)') {
+stage('Monitor Deployment for Production (Pods + Website Health Check)') {
     when {
         expression { return params.ENVIRONMENT == 'prod' }
     }
