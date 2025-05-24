@@ -1,4 +1,4 @@
-FROM nginx:latest
+FROM nginx:alpine
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 RUN rm -rf /usr/share/nginx/html/*
 COPY . /usr/share/nginx/html
