@@ -157,20 +157,16 @@ stage('Create SonarQube Project') {
             }
         }
 
-stage('Deploy to QA/Staging with Helm') {
-    when {
-        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-    }
+stage('AWS EKS Update Kubeconfig') {
     steps {
         script {
-            // Step 1: Select cluster based on ENV
             def clusterMap = [
                 'qa'     : 'qa-eks-cluster',
-                'staging': 'staging-eks-cluster'
+                'staging': 'staging-eks-cluster',
+                'prod'   : 'prod-eks-cluster'
             ]
             def selectedCluster = clusterMap[params.ENVIRONMENT]
 
-            // Step 2: Update kubeconfig
             withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
                 echo "Updating kubeconfig for cluster: ${selectedCluster}"
                 sh """
@@ -178,27 +174,34 @@ stage('Deploy to QA/Staging with Helm') {
                     || { echo "Failed to update kubeconfig for ${selectedCluster}"; exit 1; }
                 """
             }
-
-            // Step 3: Deploy with Helm
-            sh """
-                kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
-            """
-            def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-            retry(3) {
-                echo "Deploying to ${params.ENVIRONMENT} environment..."
-                sh """
-                    helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                    --namespace ${params.ENVIRONMENT} \
-                    --set ${chartValues} \
-                    --set resources.requests.memory=128Mi \
-                    --set resources.requests.cpu=100m \
-                    --set resources.limits.memory=256Mi \
-                    --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
-                """
-            }
         }
     }
 }
+        stage('Deploy to QA/Staging with Helm') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                script {
+                    sh """
+                        kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
+                    """
+                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+                    retry(3) {
+                        echo "Deploying to ${params.ENVIRONMENT} environment..."
+                        sh """
+                            helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                            --namespace ${params.ENVIRONMENT} \
+                            --set ${chartValues} \
+                            --set resources.requests.memory=128Mi \
+                            --set resources.requests.cpu=100m \
+                            --set resources.limits.memory=256Mi \
+                            --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
+                        """
+                    }
+                }
+            }
+        }
 
 stage('Rollback (if needed)') {
     when {
