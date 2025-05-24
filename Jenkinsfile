@@ -60,7 +60,7 @@ pipeline {
                                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                 -Dsonar.projectName=${SONAR_PROJECT_NAME} \
                                 -Dsonar.sources=. \
-                                -Dsonar.host.url=http://13.232.172.2:9000
+                                -Dsonar.host.url=http://13.233.168.163:9000
                             """
                         }
                     }
