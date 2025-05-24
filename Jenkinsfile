@@ -179,32 +179,36 @@ stage('AWS EKS Update Kubeconfig') {
     }
 }
         
-stage('Deploy to QA/Staging with Helm') {
-    when {
-        expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
-    }
-    environment {
-        KUBECONFIG = '/var/lib/jenkins/.kube/config'
-    }
-    
-steps {
-    script {
-        withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
-            withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
-                sh """
-                    kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
-                    helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
-                    --namespace ${params.ENVIRONMENT} \
-                    --set ${chartValues} \
-                    --set resources.requests.memory=128Mi \
-                    --set resources.requests.cpu=100m \
-                    --set resources.limits.memory=256Mi \
-                    --set resources.limits.cpu=250m
-                """
+        stage('Deploy to QA/Staging with Helm') {
+            when {
+                expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
+            }
+            steps {
+                script {
+                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+
+                    withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+                        withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
+                            sh """
+                                kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
+                            """
+                            retry(3) {
+                                echo "Deploying to ${params.ENVIRONMENT} environment..."
+                                sh """
+                                    helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \\
+                                    --namespace ${params.ENVIRONMENT} \\
+                                    --set ${chartValues} \\
+                                    --set resources.requests.memory=128Mi \\
+                                    --set resources.requests.cpu=100m \\
+                                    --set resources.limits.memory=256Mi \\
+                                    --set resources.limits.cpu=250m
+                                """
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
-}
 
 
 stage('Rollback (if needed)') {
