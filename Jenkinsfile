@@ -186,15 +186,13 @@ stage('Deploy to QA/Staging with Helm') {
     environment {
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
-    steps {
-        script {
-            sh """
-                kubectl --kubeconfig $KUBECONFIG get namespace ${params.ENVIRONMENT} || kubectl --kubeconfig $KUBECONFIG create namespace ${params.ENVIRONMENT}
-            """
-            def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
-            retry(3) {
-                echo "Deploying to ${params.ENVIRONMENT} environment..."
+    
+steps {
+    script {
+        withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+            withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
                 sh """
+                    kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
                     helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
                     --namespace ${params.ENVIRONMENT} \
                     --set ${chartValues} \
@@ -207,6 +205,7 @@ stage('Deploy to QA/Staging with Helm') {
         }
     }
 }
+
 
 stage('Rollback (if needed)') {
     when {
