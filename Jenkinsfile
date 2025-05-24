@@ -160,15 +160,26 @@ pipeline {
             }
         }
 
-        stage('AWS EKS Update Kubeconfig') {
-            steps {
-                script {
-                    echo "Updating kubeconfig for EKS..."
-                    sh 'aws eks update-kubeconfig --region ap-south-1 --name Faisal || { echo "Failed to update kubeconfig!"; exit 1; }'
-                }
+stage('AWS EKS Update Kubeconfig') {
+    steps {
+        script {
+            def clusterMap = [
+                'qa'     : 'qa-eks-cluster',
+                'staging': 'staging-eks-cluster',
+                'prod'   : 'prod-eks-cluster'
+            ]
+            def selectedCluster = clusterMap[params.ENVIRONMENT]
+
+            withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+                echo "Updating kubeconfig for cluster: ${selectedCluster}"
+                sh """
+                    aws eks update-kubeconfig --region ap-south-1 --name ${selectedCluster} \
+                    || { echo "Failed to update kubeconfig for ${selectedCluster}"; exit 1; }
+                """
             }
         }
-
+    }
+}
         stage('Deploy to QA/Staging with Helm') {
             when {
                 expression { return params.ENVIRONMENT == 'qa' || params.ENVIRONMENT == 'staging' }
