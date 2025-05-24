@@ -37,18 +37,15 @@ pipeline {
             }
         }
 
-        stage('Create SonarQube Project') {
-            steps {
-                script {
-                    def sonarToken = credentials('Sonar-Global-Token')  // Jenkins stored secret token
-                    sh """
-                    curl -u ${sonarToken}: -X POST "http://13.233.168.163:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
-                    """
-                }
-            }
+stage('Create SonarQube Project') {
+    steps {
+        withCredentials([string(credentialsId: 'Sonar-Global-Token', variable: 'SONAR_TOKEN')]) {
+            sh """
+                curl -u ${SONAR_TOKEN}: -X POST "http://13.233.168.163:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
+            """
         }
-
-
+    }
+}
         stage('SonarQube Code Analysis') {
             steps {
                 withSonarQubeEnv('Sonar-Global-Token') {
