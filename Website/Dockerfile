@@ -1,5 +1,5 @@
 FROM nginx:alpine
-RUN apk update && apk add --no-cache curl
+RUN apk update && apk upgrade && apk add --no-cache curl
 RUN rm -rf /usr/share/nginx/html/*
 COPY . /usr/share/nginx/html
 RUN echo "OK" > /usr/share/nginx/html/healthz
