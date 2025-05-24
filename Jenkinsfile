@@ -42,7 +42,7 @@ pipeline {
                 script {
                     def sonarToken = credentials('Sonar-Global-Token')  // Jenkins stored secret token
                     sh """
-                    curl -u ${sonarToken}: -X POST "http://13.232.172.2:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
+                    curl -u ${sonarToken}: -X POST "http://13.233.168.163:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
                     """
                 }
             }
