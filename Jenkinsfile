@@ -49,7 +49,7 @@ stage('Create SonarQube Project') {
 }
         stage('SonarQube Code Analysis') {
             steps {
-                withSonarQubeEnv('Sonar-Global-Token') {
+                withSonarQubeEnv('Sonar-Authentication') {
                     dir('Website') {
                         script {
                             echo "Starting SonarQube scan..."
