@@ -276,7 +276,15 @@ stage('Monitor Deployment (Pods + Website Health Check)') {
                 withEnv(["WEBSITE_URL=$WEBSITE_URL"]) {
                     sh '''#!/bin/bash
                     echo "🌐 Performing website health check on $WEBSITE_URL ..."
+                    sleep 10  # wait for service to be ready
+                    echo "🔍 DNS resolution test:"
+                    nslookup "$WEBSITE_URL" || echo "❗ DNS resolution failed."
+
+                    echo "🔍 CURL with verbose output:"
+                    curl -v "$WEBSITE_URL" || echo "❗ CURL failed."
+
                     STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                    echo "ℹ️ HTTP Status Code: $STATUS_CODE"
 
                     if [ "$STATUS_CODE" -ne 200 ]; then
                         echo "❌ Website health check failed with status code $STATUS_CODE"
