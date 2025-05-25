@@ -240,36 +240,56 @@ stage('Monitor Deployment (Pods + Website Health Check)') {
     }
     steps {
         script {
-            echo "Monitoring deployment status..."
+            echo "🧪 Monitoring deployment status for ${params.ENVIRONMENT}..."
+
             retry(3) {
                 withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
                     sh '''#!/bin/bash
-                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                    '''
-                    sh '''#!/bin/bash
-                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                        if [[ "$POD_STATUS" != *"Running"* ]]; then
-                            echo "❌ Not all pods are running."
+                    echo "⏳ Waiting for all pods to be in 'Running' status in namespace $ENVIRONMENT..."
+                    MAX_RETRIES=12
+                    RETRY_COUNT=0
+
+                    while true; do
+                        POD_PHASES=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        NOT_RUNNING=$(echo "$POD_PHASES" | grep -v "Running" || true)
+
+                        if [ -z "$NOT_RUNNING" ]; then
+                            echo "✅ All pods are running in $ENVIRONMENT."
+                            break
+                        fi
+
+                        RETRY_COUNT=$((RETRY_COUNT+1))
+                        if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+                            echo "❌ Timeout: Some pods are not in Running state."
+                            kubectl get pods -n "$ENVIRONMENT"
                             exit 1
                         fi
+
+                        echo "⏳ Pods not ready yet. Retrying in 5s... [$RETRY_COUNT/$MAX_RETRIES]"
+                        sleep 5
+                    done
                     '''
                 }
             }
+
             retry(3) {
-                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                withEnv(["WEBSITE_URL=$WEBSITE_URL"]) {
                     sh '''#!/bin/bash
-                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                        if [ "$STATUS_CODE" -ne 200 ]; then
-                            echo "❌ Website health check failed."
-                            exit 1
-                        fi
+                    echo "🌐 Performing website health check on $WEBSITE_URL ..."
+                    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+
+                    if [ "$STATUS_CODE" -ne 200 ]; then
+                        echo "❌ Website health check failed with status code $STATUS_CODE"
+                        exit 1
+                    fi
+
+                    echo "✅ Website is healthy. HTTP $STATUS_CODE"
                     '''
                 }
             }
         }
     }
 }
-
         stage('Approval for Production') {
             when {
                 expression { return params.ENVIRONMENT == 'prod' }
