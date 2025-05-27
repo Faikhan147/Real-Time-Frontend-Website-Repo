@@ -12,12 +12,11 @@ pipeline {
     environment {
         DOCKER_IMAGE = "faisalkhan35/my-website"
         SLACK_WEBHOOK_URL = credentials('slack-webhook')
-        FRONTEND_IMAGE_NAME = "faisalkhan35/my-website"
         TAG = "${BUILD_NUMBER}"
         SONAR_PROJECT_KEY = "${params.SONAR_PROJECT_KEY}"
         SONAR_PROJECT_NAME = "${params.SONAR_PROJECT_NAME}"
         SONAR_SCANNER_HOME = "/opt/sonar-scanner"
-        IMAGE_NAME_TAG = "${FRONTEND_IMAGE_NAME}:${TAG}"
+        IMAGE_NAME_TAG = "${DOCKER_IMAGE}:${TAG}"
         HELM_CHART_DIR = "helm/website-chart"
         WEBSITE_URL = credentials('frontend-website-url')
         KUBECONFIG = '/var/lib/jenkins/.kube/config'  
