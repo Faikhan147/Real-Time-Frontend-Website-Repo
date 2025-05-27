@@ -298,71 +298,106 @@ stage('Monitor Deployment (Pods + Website Health Check)') {
         }
     }
 }
-        stage('Approval for Production') {
-            when {
-                expression { return params.ENVIRONMENT == 'prod' }
-            }
-            steps {
-                input message: "Deploy to Production?", ok: "Yes, deploy now"
-            }
-        }
+        
+stage('Approval for Production') {
+    when {
+        expression { return params.ENVIRONMENT == 'prod' }
+    }
+    steps {
+        input message: "Deploy to Production?", ok: "Yes, deploy now"
+    }
+}
 
-        stage('Deploy to Production with Helm') {
-            when {
-                expression { return params.ENVIRONMENT == 'prod' }
-            }
-            steps {
-                script {
+stage('Deploy to Production with Helm') {
+    when {
+        expression { return params.ENVIRONMENT == 'prod' }
+    }
+    steps {
+        script {
+            def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
+
+            withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+                withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
                     sh """
-                        kubectl get namespace prod || kubectl create namespace prod
+                        kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
                     """
-                    def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=prod"
                     retry(3) {
-                        echo "Deploying to Production..."
+                        echo "Deploying to ${params.ENVIRONMENT} environment..."
                         sh """
-                            helm upgrade --install website-prod ${HELM_CHART_DIR} \
-                            --namespace prod \
+                            helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \
+                            --namespace ${params.ENVIRONMENT} \
                             --set ${chartValues} \
                             --set resources.requests.memory=128Mi \
                             --set resources.requests.cpu=100m \
                             --set resources.limits.memory=256Mi \
-                            --set resources.limits.cpu=250m || { echo 'Production deployment failed!'; exit 1; }
+                            --set resources.limits.cpu=250m
                         """
                     }
                 }
             }
         }
+    }
+}
 
-// Monitoring for Production Deployment
+        // Monitoring Deployment for Production
 stage('Monitor Deployment for Production (Pods + Website Health Check)') {
     when {
         expression { return params.ENVIRONMENT == 'prod' }
     }
     steps {
         script {
-            echo "Monitoring production deployment status..."
+            echo "📡 Monitoring production deployment status for ${params.ENVIRONMENT}..."
+
             retry(3) {
                 withEnv(["ENVIRONMENT=${params.ENVIRONMENT}"]) {
                     sh '''#!/bin/bash
-                        kubectl get pods -n "$ENVIRONMENT" || { echo 'Failed to get pods!'; exit 1; }
-                    '''
-                    sh '''#!/bin/bash
-                        POD_STATUS=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
-                        if [[ "$POD_STATUS" != *"Running"* ]]; then
-                            echo "❌ Not all pods are running."
+                    echo "⏳ Waiting for all pods to be in 'Running' status in namespace $ENVIRONMENT..."
+                    MAX_RETRIES=12
+                    RETRY_COUNT=0
+
+                    while true; do
+                        POD_PHASES=$(kubectl get pods -n "$ENVIRONMENT" -o jsonpath='{.items[*].status.phase}')
+                        NOT_RUNNING=$(echo "$POD_PHASES" | grep -v "Running" || true)
+
+                        if [ -z "$NOT_RUNNING" ]; then
+                            echo "✅ All pods are running in $ENVIRONMENT."
+                            break
+                        fi
+
+                        RETRY_COUNT=$((RETRY_COUNT+1))
+                        if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+                            echo "❌ Timeout: Some pods are not in Running state."
+                            kubectl get pods -n "$ENVIRONMENT"
                             exit 1
                         fi
+
+                        echo "⏳ Pods not ready yet. Retrying in 5s... [$RETRY_COUNT/$MAX_RETRIES]"
+                        sleep 5
+                    done
                     '''
                 }
             }
+
             retry(3) {
-                withEnv(["WEBSITE_URL=${WEBSITE_URL}"]) {
+                withEnv(["WEBSITE_URL=$WEBSITE_URL"]) {
                     sh '''#!/bin/bash
-                        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
-                        if [ "$STATUS_CODE" -ne 200 ]; then
-                            echo "❌ Website health check failed."
-                            exit 1
-                        fi
+                    echo "🌐 Performing website health check on $WEBSITE_URL ..."
+                    sleep 10  # wait for service to be ready
+                    echo "🔍 DNS resolution test:"
+                    nslookup "$WEBSITE_URL" || echo "❗ DNS resolution failed."
+
+                    echo "🔍 CURL with verbose output:"
+                    curl -v "$WEBSITE_URL" || echo "❗ CURL failed."
+
+                    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$WEBSITE_URL")
+                    echo "ℹ️ HTTP Status Code: $STATUS_CODE"
+
+                    if [ "$STATUS_CODE" -ne 200 ]; then
+                        echo "❌ Website health check failed with status code $STATUS_CODE"
+                        exit 1
+                    fi
+
+                    echo "✅ Website is healthy. HTTP $STATUS_CODE"
                     '''
                 }
             }
