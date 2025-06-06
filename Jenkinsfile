@@ -199,7 +199,7 @@ stage('Deploy to QA/Staging with Helm') {
                         --set resources.requests.memory=128Mi \\
                         --set resources.requests.cpu=100m \\
                         --set resources.limits.memory=256Mi \\
-                        --set resources.limits.cpu=250m
+                        --set resources.limits.cpu=250m || { echo 'Helm deployment failed!'; exit 1; }
                     """
                 }
             }
@@ -334,7 +334,7 @@ stage('Deploy to Production with Helm') {
     }
 }
 
-        // Monitoring Deployment for Production
+// Monitoring Deployment for Production
 stage('Monitor Deployment for Production (Pods + Website Health Check)') {
     when {
         expression { return params.ENVIRONMENT == 'prod' }
