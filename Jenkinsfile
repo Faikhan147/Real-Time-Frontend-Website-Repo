@@ -323,10 +323,10 @@ stage('Deploy to Production with Helm') {
                         helm upgrade --install website-${params.ENVIRONMENT} ${HELM_CHART_DIR} \\
                         --namespace ${params.ENVIRONMENT} \\
                         --set ${chartValues} \\
-                        --set resources.requests.memory=128Mi \\
-                        --set resources.requests.cpu=100m \\
-                        --set resources.limits.memory=256Mi \\
-                        --set resources.limits.cpu=250m
+                        --set resources.requests.memory=256Mi \\
+                        --set resources.requests.cpu=200m \\
+                        --set resources.limits.memory=512Mi \\
+                        --set resources.limits.cpu=500m
                     """
                 }
             }
