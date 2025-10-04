@@ -167,10 +167,10 @@ stage('AWS EKS Update Kubeconfig') {
             ]
             def selectedCluster = clusterMap[params.ENVIRONMENT]
 
-            withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+            withAWS(credentials: 'aws-credentials', region: 'us-east-1') {
                 echo "Updating kubeconfig for cluster: ${selectedCluster}"
                 sh """
-                    aws eks update-kubeconfig --region ap-south-1 --name ${selectedCluster} \
+                    aws eks update-kubeconfig --region us-east-1 --name ${selectedCluster} \
                     || { echo "Failed to update kubeconfig for ${selectedCluster}"; exit 1; }
                 """
             }
