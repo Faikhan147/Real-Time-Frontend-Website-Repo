@@ -41,7 +41,7 @@ stage('Create SonarQube Project') {
     steps {
         withCredentials([string(credentialsId: 'Sonar-Global-Token', variable: 'SONAR_TOKEN')]) {
             sh """
-                curl -u ${SONAR_TOKEN}: -X POST "http://18.232.113.217:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
+                curl -u ${SONAR_TOKEN}: -X POST "http://54.206.159.25:9000/api/projects/create?name=${SONAR_PROJECT_NAME}&project=${SONAR_PROJECT_KEY}"
             """
         }
     }
@@ -57,7 +57,7 @@ stage('Create SonarQube Project') {
                                 -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                 -Dsonar.projectName=${SONAR_PROJECT_NAME} \
                                 -Dsonar.sources=. \
-                                -Dsonar.host.url=http://18.232.113.217:9000
+                                -Dsonar.host.url=http://54.206.159.25:9000
                             """
                         }
                     }
@@ -167,10 +167,10 @@ stage('AWS EKS Update Kubeconfig') {
             ]
             def selectedCluster = clusterMap[params.ENVIRONMENT]
 
-            withAWS(credentials: 'aws-credentials', region: 'us-east-1') {
+            withAWS(credentials: 'aws-credentials', region: 'ap-southeast-2') {
                 echo "Updating kubeconfig for cluster: ${selectedCluster}"
                 sh """
-                    aws eks update-kubeconfig --region us-east-1 --name ${selectedCluster} \
+                    aws eks update-kubeconfig --region ap-southeast-2 --name ${selectedCluster} \
                     || { echo "Failed to update kubeconfig for ${selectedCluster}"; exit 1; }
                 """
             }
@@ -186,7 +186,7 @@ stage('Deploy to QA/Staging with Helm') {
         script {
             def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
 
-            withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+            withAWS(credentials: 'aws-credentials', region: 'ap-southeast-2') {
                 sh """
                     kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
                 """
@@ -313,7 +313,7 @@ stage('Deploy to Production with Helm') {
         script {
             def chartValues = "image.repository=${DOCKER_IMAGE},image.tag=${BUILD_NUMBER},environment=${params.ENVIRONMENT}"
 
-            withAWS(credentials: 'aws-credentials', region: 'ap-south-1') {
+            withAWS(credentials: 'aws-credentials', region: 'ap-southeast-2') {
                 sh """
                     kubectl get namespace ${params.ENVIRONMENT} || kubectl create namespace ${params.ENVIRONMENT}
                 """
